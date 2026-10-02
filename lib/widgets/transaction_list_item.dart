@@ -7,12 +7,14 @@ class TransactionListItem extends StatelessWidget {
   final Transaction transaction;
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
+  final String currencySymbol;
 
   const TransactionListItem({
     super.key,
     required this.transaction,
     this.onTap,
     this.onDelete,
+    this.currencySymbol = '\$',
   });
 
   @override
@@ -30,7 +32,6 @@ class TransactionListItem extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            // Category icon
             Container(
               width: 46,
               height: 46,
@@ -41,7 +42,6 @@ class TransactionListItem extends StatelessWidget {
               child: Icon(transaction.category.icon, color: catColor, size: 22),
             ),
             const SizedBox(width: 12),
-            // Info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -82,13 +82,16 @@ class TransactionListItem extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        formatDateTime(transaction.date),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark
-                              ? AppColors.textSecondaryDark
-                              : AppColors.textSecondaryLight,
+                      Flexible(
+                        child: Text(
+                          formatRelativeDate(transaction.date),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark
+                                ? AppColors.textSecondaryDark
+                                : AppColors.textSecondaryLight,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -96,12 +99,12 @@ class TransactionListItem extends StatelessWidget {
                 ],
               ),
             ),
-            // Amount
+            const SizedBox(width: 8),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '$sign${formatAmount(transaction.amount)}',
+                  '$sign${formatAmount(transaction.amount, symbol: currencySymbol)}',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,

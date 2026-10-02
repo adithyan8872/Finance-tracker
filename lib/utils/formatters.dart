@@ -1,16 +1,18 @@
 import 'package:intl/intl.dart';
 
-final _currencyFmt = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
-final _compactFmt = NumberFormat.compact();
+// These are rebuilt per-currency call, so we keep a factory pattern.
 final _dateFmt = DateFormat('MMM dd, yyyy');
 final _timeFmt = DateFormat('hh:mm a');
 final _monthFmt = DateFormat('MMM yyyy');
 final _shortDateFmt = DateFormat('dd MMM');
 
-String formatAmount(double amount) => _currencyFmt.format(amount);
+/// Format amount with given currency symbol.
+String formatAmount(double amount, {String symbol = '\$'}) {
+  final fmt = NumberFormat.currency(symbol: symbol, decimalDigits: 2);
+  return fmt.format(amount);
+}
 
-String formatCompact(double amount) =>
-    '\$${_compactFmt.format(amount)}';
+String formatCompact(double amount) => NumberFormat.compact().format(amount);
 
 String formatDate(DateTime date) => _dateFmt.format(date);
 

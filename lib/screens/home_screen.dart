@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:finance/models/transaction.dart';
-import 'package:finance/services/transaction_service.dart';
+import 'package:finance/screens/add_transaction_screen.dart';
+import 'package:finance/screens/transaction_detail_screen.dart';
+import 'package:finance/state/app_state.dart';
 import 'package:finance/utils/app_theme.dart';
 import 'package:finance/utils/formatters.dart';
 import 'package:finance/widgets/empty_state_widget.dart';
@@ -15,39 +18,43 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<Transaction> _recent = [];
-  double _balance = 0, _income = 0, _expenses = 0;
-
   @override
   void initState() {
     super.initState();
-    _load();
+    AppState.instance.addListener(_rebuild);
   }
+
+  void _rebuild() => setState(() {});
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _load();
+  void dispose() {
+    AppState.instance.removeListener(_rebuild);
+    super.dispose();
   }
 
-  void _load() {
-    final s = TransactionService.instance;
-    setState(() {
-      _balance = s.getBalance();
-      _income = s.getTotalIncome();
-      _expenses = s.getTotalExpenses();
-      _recent = s.getRecentTransactions(limit: 5);
-    });
+  void _openAdd({TransactionType? type}) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddTransactionScreen(
+        initialType: type,
+        onSaved: () => Navigator.pop(context),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final state = AppState.instance;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sym = state.currencySymbol;
+
     return Scaffold(
       backgroundColor: isDark ? AppColors.bgDark : AppColors.bgLight,
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: () async => _load(),
+          onRefresh: () async => setState(() {}),
           color: AppColors.primary,
           child: CustomScrollView(
             slivers: [
@@ -57,13 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                   child: Row(
                     children: [
-                      CircleAvatar(
-                        radius: 22,
-                        backgroundColor:
-                            AppColors.primary.withValues(alpha: 0.15),
-                        child: const Icon(Icons.person_rounded,
-                            color: AppColors.primary, size: 22),
-                      ),
+                      _ProfileAvatar(imagePath: state.profileImagePath),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -79,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             Text(
-                              'My Finances',
+                              state.name,
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
@@ -91,27 +92,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? AppColors.surfaceDark
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.06),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Icon(Icons.notifications_outlined,
-                            size: 20,
-                            color: isDark
-                                ? AppColors.textPrimaryDark
-                                : AppColors.textPrimaryLight),
-                      ),
                     ],
                   ),
                 ),
@@ -122,8 +102,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                   child: _BalanceCard(
-                    balance: _balance,
-                    onAddTap: widget.onAddTap,
+                    balance: state.balance,
+                    symbol: sym,
+                    onAddIncome: () => _openAdd(type: TransactionType.income),
+                    onAddExpense: () => _openAdd(type: TransactionType.expense),
                   ),
                 ),
               ),
@@ -137,7 +119,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: _MiniStatCard(
                           label: 'Income',
-                          amount: _income,
+                          amount: state.totalIncome,
+                          symbol: sym,
                           icon: Icons.arrow_downward_rounded,
                           color: AppColors.income,
                         ),
@@ -146,12 +129,59 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: _MiniStatCard(
                           label: 'Expenses',
-                          amount: _expenses,
+                          amount: state.totalExpenses,
+                          symbol: sym,
                           icon: Icons.arrow_upward_rounded,
                           color: AppColors.expense,
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+
+              // ── Monthly summary ──────────────────────────────────────────
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.cardDark : Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _MonthStat(
+                            label: 'This Month Income',
+                            amount: state.monthlyIncome,
+                            symbol: sym,
+                            color: AppColors.income,
+                          ),
+                        ),
+                        Container(
+                            width: 1,
+                            height: 40,
+                            color: isDark
+                                ? AppColors.dividerDark
+                                : AppColors.dividerLight),
+                        Expanded(
+                          child: _MonthStat(
+                            label: 'This Month Spent',
+                            amount: state.monthlyExpenses,
+                            symbol: sym,
+                            color: AppColors.expense,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -178,27 +208,29 @@ class _HomeScreenState extends State<HomeScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           _QuickAction(
-                            icon: Icons.add_rounded,
+                            icon: Icons.add_circle_outline_rounded,
                             label: 'Add',
                             color: AppColors.primary,
-                            onTap: widget.onAddTap,
+                            onTap: widget.onAddTap ?? () => _openAdd(),
                           ),
                           _QuickAction(
-                            icon: Icons.receipt_long_rounded,
-                            label: 'Pay Bills',
-                            color: AppColors.warning,
-                            onTap: () {},
+                            icon: Icons.arrow_downward_rounded,
+                            label: 'Income',
+                            color: AppColors.income,
+                            onTap: () =>
+                                _openAdd(type: TransactionType.income),
+                          ),
+                          _QuickAction(
+                            icon: Icons.arrow_upward_rounded,
+                            label: 'Expense',
+                            color: AppColors.expense,
+                            onTap: () =>
+                                _openAdd(type: TransactionType.expense),
                           ),
                           _QuickAction(
                             icon: Icons.analytics_rounded,
-                            label: 'Analytics',
+                            label: 'Reports',
                             color: AppColors.accent,
-                            onTap: () {},
-                          ),
-                          _QuickAction(
-                            icon: Icons.savings_rounded,
-                            label: 'Savings',
-                            color: AppColors.income,
                             onTap: () {},
                           ),
                         ],
@@ -238,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              if (_recent.isEmpty)
+              if (state.recentTransactions.isEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -247,10 +279,18 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: isDark ? AppColors.cardDark : Colors.white,
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: const EmptyStateWidget(
+                      child: EmptyStateWidget(
                         icon: Icons.receipt_long_rounded,
                         title: 'No transactions yet',
                         message: 'Tap the + button to add your first one.',
+                        action: FilledButton.icon(
+                          onPressed: () => _openAdd(),
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text('Add Transaction'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -272,12 +312,26 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       child: Column(
-                        children: _recent.asMap().entries.map((e) {
+                        children: state.recentTransactions
+                            .asMap()
+                            .entries
+                            .map((e) {
                           final t = e.value;
-                          final isLast = e.key == _recent.length - 1;
+                          final isLast =
+                              e.key == state.recentTransactions.length - 1;
                           return Column(
                             children: [
-                              TransactionListItem(transaction: t),
+                              TransactionListItem(
+                                transaction: t,
+                                currencySymbol: sym,
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        TransactionDetailScreen(transaction: t),
+                                  ),
+                                ),
+                              ),
                               if (!isLast)
                                 Divider(
                                   height: 1,
@@ -307,9 +361,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _BalanceCard extends StatelessWidget {
   final double balance;
-  final VoidCallback? onAddTap;
+  final String symbol;
+  final VoidCallback? onAddIncome;
+  final VoidCallback? onAddExpense;
 
-  const _BalanceCard({required this.balance, this.onAddTap});
+  const _BalanceCard({
+    required this.balance,
+    required this.symbol,
+    this.onAddIncome,
+    this.onAddExpense,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -363,7 +424,7 @@ class _BalanceCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      balance >= 0 ? '+Active' : 'Negative',
+                      balance >= 0 ? 'Positive' : 'Negative',
                       style: TextStyle(
                         fontSize: 11,
                         color: balance >= 0
@@ -379,7 +440,7 @@ class _BalanceCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            formatAmount(balance),
+            formatAmount(balance, symbol: symbol),
             style: const TextStyle(
               fontSize: 34,
               fontWeight: FontWeight.w800,
@@ -392,17 +453,17 @@ class _BalanceCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _CardButton(
-                  icon: Icons.swap_horiz_rounded,
-                  label: 'Transfer',
-                  onTap: () {},
+                  icon: Icons.arrow_downward_rounded,
+                  label: 'Add Income',
+                  onTap: onAddIncome,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _CardButton(
-                  icon: Icons.add_rounded,
-                  label: 'Add Funds',
-                  onTap: onAddTap,
+                  icon: Icons.arrow_upward_rounded,
+                  label: 'Add Expense',
+                  onTap: onAddExpense,
                   filled: true,
                 ),
               ),
@@ -464,17 +525,17 @@ class _CardButton extends StatelessWidget {
   }
 }
 
-// ── Mini Stat Card ────────────────────────────────────────────────────────────
-
 class _MiniStatCard extends StatelessWidget {
   final String label;
   final double amount;
+  final String symbol;
   final IconData icon;
   final Color color;
 
   const _MiniStatCard({
     required this.label,
     required this.amount,
+    required this.symbol,
     required this.icon,
     required this.color,
   });
@@ -521,7 +582,7 @@ class _MiniStatCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  formatAmount(amount),
+                  formatAmount(amount, symbol: symbol),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -539,7 +600,50 @@ class _MiniStatCard extends StatelessWidget {
   }
 }
 
-// ── Quick Action ──────────────────────────────────────────────────────────────
+class _MonthStat extends StatelessWidget {
+  final String label;
+  final double amount;
+  final String symbol;
+  final Color color;
+
+  const _MonthStat({
+    required this.label,
+    required this.amount,
+    required this.symbol,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark
+                  ? AppColors.textSecondaryDark
+                  : AppColors.textSecondaryLight,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            formatAmount(amount, symbol: symbol),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _QuickAction extends StatelessWidget {
   final IconData icon;
@@ -590,6 +694,24 @@ class _QuickAction extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  final String imagePath;
+  const _ProfileAvatar({required this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imagePath.isNotEmpty && File(imagePath).existsSync();
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+      backgroundImage: hasImage ? FileImage(File(imagePath)) : null,
+      child: hasImage
+          ? null
+          : const Icon(Icons.person_rounded, color: AppColors.primary, size: 22),
     );
   }
 }

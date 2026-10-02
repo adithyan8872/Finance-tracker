@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:finance/models/transaction.dart';
 import 'package:finance/screens/analytics_screen.dart';
+import 'package:finance/screens/budget_screen.dart';
 import 'package:finance/screens/home_screen.dart';
 import 'package:finance/screens/profile_screen.dart';
 import 'package:finance/screens/transactions_screen.dart';
 import 'package:finance/screens/add_transaction_screen.dart';
+import 'package:finance/state/app_state.dart';
 import 'package:finance/utils/app_theme.dart';
 
 class MainScaffold extends StatefulWidget {
-  final bool isDarkMode;
-  final ValueChanged<bool> onThemeToggle;
-
-  const MainScaffold({
-    super.key,
-    required this.isDarkMode,
-    required this.onThemeToggle,
-  });
+  const MainScaffold({super.key});
 
   @override
   State<MainScaffold> createState() => _MainScaffoldState();
@@ -23,24 +19,52 @@ class MainScaffold extends StatefulWidget {
 class _MainScaffoldState extends State<MainScaffold> {
   int _index = 0;
 
-  void _goToAdd() => setState(() => _index = 2);
+  @override
+  void initState() {
+    super.initState();
+    AppState.instance.addListener(_onStateChange);
+  }
+
+  void _onStateChange() => setState(() {});
+
+  @override
+  void dispose() {
+    AppState.instance.removeListener(_onStateChange);
+    super.dispose();
+  }
+
+  void _openAdd({TransactionType? type}) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddTransactionScreen(
+        initialType: type,
+        onSaved: () {
+          Navigator.pop(context);
+          setState(() => _index = 0);
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final screens = [
-      HomeScreen(onAddTap: _goToAdd),
+      HomeScreen(onAddTap: () => _openAdd()),
       const TransactionsScreen(),
-      AddTransactionScreen(onSaved: () => setState(() => _index = 0)),
+      const BudgetScreen(),
       const AnalyticsScreen(),
-      ProfileScreen(
-          isDarkMode: widget.isDarkMode,
-          onThemeToggle: widget.onThemeToggle),
+      const ProfileScreen(),
     ];
 
     return Scaffold(
       body: IndexedStack(index: _index, children: screens),
+      floatingActionButton: _index == 0 || _index == 1
+          ? null
+          : null,
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: isDark ? AppColors.surfaceDark : Colors.white,
@@ -72,9 +96,9 @@ class _MainScaffoldState extends State<MainScaffold> {
                     index: 1,
                     current: _index,
                     onTap: () => setState(() => _index = 1)),
-                // Central FAB-style add button
+                // Central add button
                 GestureDetector(
-                  onTap: () => setState(() => _index = 2),
+                  onTap: () => _openAdd(),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     width: 52,
@@ -98,6 +122,13 @@ class _MainScaffoldState extends State<MainScaffold> {
                         color: Colors.white, size: 26),
                   ),
                 ),
+                _NavItem(
+                    icon: Icons.account_balance_wallet_outlined,
+                    activeIcon: Icons.account_balance_wallet_rounded,
+                    label: 'Budget',
+                    index: 2,
+                    current: _index,
+                    onTap: () => setState(() => _index = 2)),
                 _NavItem(
                     icon: Icons.analytics_outlined,
                     activeIcon: Icons.analytics_rounded,
@@ -142,7 +173,7 @@ class _NavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isActive = index == current;
-    final activeColor = AppColors.primary;
+    const activeColor = AppColors.primary;
     final inactiveColor = isDark
         ? AppColors.textSecondaryDark
         : AppColors.textSecondaryLight;
@@ -151,7 +182,7 @@ class _NavItem extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 60,
+        width: 52,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -168,7 +199,7 @@ class _NavItem extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 fontWeight:
                     isActive ? FontWeight.w600 : FontWeight.normal,
                 color: isActive ? activeColor : inactiveColor,

@@ -189,6 +189,9 @@ class Transaction extends HiveObject {
   @HiveField(8)
   final bool isRecurring;
 
+  @HiveField(9)
+  final String? receiptImagePath;
+
   Transaction({
     required this.id,
     required this.amount,
@@ -199,5 +202,6 @@ class Transaction extends HiveObject {
     required this.createdAt,
     this.paymentMethod = PaymentMethod.cash,
     this.isRecurring = false,
+    this.receiptImagePath,
   });
 }

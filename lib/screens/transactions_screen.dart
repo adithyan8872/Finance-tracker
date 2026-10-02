@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:finance/models/transaction.dart';
-import 'package:finance/services/transaction_service.dart';
+import 'package:finance/screens/transaction_detail_screen.dart';
+import 'package:finance/state/app_state.dart';
 import 'package:finance/utils/app_theme.dart';
 import 'package:finance/utils/formatters.dart';
 import 'package:finance/widgets/empty_state_widget.dart';
@@ -14,40 +15,29 @@ class TransactionsScreen extends StatefulWidget {
 }
 
 class _TransactionsScreenState extends State<TransactionsScreen> {
-  List<Transaction> _all = [];
-  List<Transaction> _filtered = [];
   String _search = '';
   TransactionType? _typeFilter;
   Category? _catFilter;
+  _SortMode _sort = _SortMode.newest;
   final _searchCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _load();
+    AppState.instance.addListener(_rebuild);
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _load();
-  }
+  void _rebuild() => setState(() {});
 
   @override
   void dispose() {
+    AppState.instance.removeListener(_rebuild);
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  void _load() {
-    setState(() {
-      _all = TransactionService.instance.getAllTransactions();
-      _applyFilters();
-    });
-  }
-
-  void _applyFilters() {
-    _filtered = _all.where((t) {
+  List<Transaction> get _filtered {
+    var list = AppState.instance.transactions.where((t) {
       final matchSearch = _search.isEmpty ||
           t.description.toLowerCase().contains(_search.toLowerCase()) ||
           t.category.label.toLowerCase().contains(_search.toLowerCase());
@@ -55,6 +45,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       final matchCat = _catFilter == null || t.category == _catFilter;
       return matchSearch && matchType && matchCat;
     }).toList();
+
+    switch (_sort) {
+      case _SortMode.newest:
+        list.sort((a, b) => b.date.compareTo(a.date));
+      case _SortMode.oldest:
+        list.sort((a, b) => a.date.compareTo(b.date));
+      case _SortMode.highestAmount:
+        list.sort((a, b) => b.amount.compareTo(a.amount));
+      case _SortMode.lowestAmount:
+        list.sort((a, b) => a.amount.compareTo(b.amount));
+    }
+    return list;
   }
 
   Future<void> _deleteWithConfirm(Transaction tx) async {
@@ -77,18 +79,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       ),
     );
     if (ok == true && mounted) {
-      await TransactionService.instance.deleteTransaction(tx.id);
-      _load();
+      await AppState.instance.deleteTransaction(tx.id);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sym = AppState.instance.currencySymbol;
+    final filtered = _filtered;
 
-    // Group by date label
+    // Group by relative date
     final Map<String, List<Transaction>> grouped = {};
-    for (final t in _filtered) {
+    for (final t in filtered) {
       final key = formatRelativeDate(t.date);
       grouped.putIfAbsent(key, () => []).add(t);
     }
@@ -99,9 +102,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ── AppBar ────────────────────────────────────────────────────
+            // ── AppBar ───────────────────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
               child: Row(
                 children: [
                   Text(
@@ -115,6 +118,21 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     ),
                   ),
                   const Spacer(),
+                  // Sort button
+                  PopupMenuButton<_SortMode>(
+                    icon: Icon(Icons.sort_rounded,
+                        color: isDark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight),
+                    onSelected: (m) => setState(() => _sort = m),
+                    itemBuilder: (_) => [
+                      _sortItem(_SortMode.newest, 'Newest First'),
+                      _sortItem(_SortMode.oldest, 'Oldest First'),
+                      _sortItem(_SortMode.highestAmount, 'Highest Amount'),
+                      _sortItem(_SortMode.lowestAmount, 'Lowest Amount'),
+                    ],
+                  ),
+                  // Filter button
                   IconButton(
                     onPressed: _showFilterSheet,
                     icon: Stack(
@@ -143,13 +161,37 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ),
             ),
 
+            // ── Summary strip ─────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              child: Row(
+                children: [
+                  _SummaryPill(
+                      label: 'Income',
+                      value: formatAmount(AppState.instance.totalIncome,
+                          symbol: sym),
+                      color: AppColors.income),
+                  const SizedBox(width: 12),
+                  _SummaryPill(
+                      label: 'Expenses',
+                      value: formatAmount(AppState.instance.totalExpenses,
+                          symbol: sym),
+                      color: AppColors.expense),
+                  const SizedBox(width: 12),
+                  _SummaryPill(
+                      label: 'Balance',
+                      value: formatAmount(AppState.instance.balance, symbol: sym),
+                      color: AppColors.primary),
+                ],
+              ),
+            ),
+
             // ── Search bar ────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: TextField(
                 controller: _searchCtrl,
-                onChanged: (v) =>
-                    setState(() { _search = v; _applyFilters(); }),
+                onChanged: (v) => setState(() => _search = v),
                 decoration: InputDecoration(
                   hintText: 'Search transactions…',
                   hintStyle: TextStyle(
@@ -165,7 +207,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                           onPressed: () => setState(() {
                             _search = '';
                             _searchCtrl.clear();
-                            _applyFilters();
                           }),
                         )
                       : null,
@@ -182,7 +223,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
             // ── List ──────────────────────────────────────────────────────
             Expanded(
-              child: _filtered.isEmpty
+              child: filtered.isEmpty
                   ? EmptyStateWidget(
                       icon: Icons.receipt_long_rounded,
                       title: 'No transactions',
@@ -216,8 +257,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                             ),
                             Container(
                               decoration: BoxDecoration(
-                                color:
-                                    isDark ? AppColors.cardDark : Colors.white,
+                                color: isDark
+                                    ? AppColors.cardDark
+                                    : Colors.white,
                                 borderRadius: BorderRadius.circular(16),
                                 boxShadow: [
                                   BoxShadow(
@@ -253,8 +295,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                                           await _deleteWithConfirm(tx);
                                           return false;
                                         },
-                                        child:
-                                            TransactionListItem(transaction: tx),
+                                        child: TransactionListItem(
+                                          transaction: tx,
+                                          currencySymbol: sym,
+                                          onTap: () => Navigator.push<void>(
+                                            context,
+                                            MaterialPageRoute<void>(
+                                              builder: (_) =>
+                                                  TransactionDetailScreen(
+                                                      transaction: tx),
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                       if (!isLast)
                                         Divider(
@@ -281,6 +333,23 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
+  PopupMenuItem<_SortMode> _sortItem(_SortMode mode, String label) {
+    return PopupMenuItem(
+      value: mode,
+      child: Row(
+        children: [
+          Icon(
+            _sort == mode ? Icons.radio_button_checked : Icons.radio_button_off,
+            size: 16,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      ),
+    );
+  }
+
   void _showFilterSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -289,17 +358,60 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       builder: (_) => _FilterSheet(
         typeFilter: _typeFilter,
         catFilter: _catFilter,
-        onApply: (type, cat) {
-          setState(() {
-            _typeFilter = type;
-            _catFilter = cat;
-            _applyFilters();
-          });
-        },
+        onApply: (type, cat) =>
+            setState(() {
+              _typeFilter = type;
+              _catFilter = cat;
+            }),
       ),
     );
   }
 }
+
+enum _SortMode { newest, oldest, highestAmount, lowestAmount }
+
+class _SummaryPill extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _SummaryPill(
+      {required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: isDark
+                        ? AppColors.textSecondaryDark
+                        : AppColors.textSecondaryLight)),
+            const SizedBox(height: 2),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: color),
+                overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Filter Sheet ──────────────────────────────────────────────────────────────
 
 class _FilterSheet extends StatefulWidget {
   final TransactionType? typeFilter;
@@ -366,17 +478,17 @@ class _FilterSheetState extends State<_FilterSheet> {
           Wrap(
             spacing: 8,
             children: [
-              _FilterChip(
+              _FChip(
                   label: 'All',
                   selected: _type == null,
                   onTap: () => setState(() => _type = null)),
-              _FilterChip(
+              _FChip(
                   label: 'Income',
                   color: AppColors.income,
                   selected: _type == TransactionType.income,
                   onTap: () =>
                       setState(() => _type = TransactionType.income)),
-              _FilterChip(
+              _FChip(
                   label: 'Expense',
                   color: AppColors.expense,
                   selected: _type == TransactionType.expense,
@@ -397,11 +509,11 @@ class _FilterSheetState extends State<_FilterSheet> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _FilterChip(
+              _FChip(
                   label: 'All',
                   selected: _cat == null,
                   onTap: () => setState(() => _cat = null)),
-              ...Category.values.map((c) => _FilterChip(
+              ...Category.values.map((c) => _FChip(
                     label: c.label,
                     color: c.color,
                     selected: _cat == c,
@@ -439,13 +551,13 @@ class _FilterSheetState extends State<_FilterSheet> {
   }
 }
 
-class _FilterChip extends StatelessWidget {
+class _FChip extends StatelessWidget {
   final String label;
   final Color? color;
   final bool selected;
   final VoidCallback onTap;
 
-  const _FilterChip({
+  const _FChip({
     required this.label,
     required this.selected,
     required this.onTap,
